@@ -1,0 +1,29 @@
+{
+  "name": "processdesk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A desktop process monitor built with Electron + React for codebase debugging exams.",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n RENDERER,ELECTRON \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "start": "electron .",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/unit/*.test.js tests/integration/*.test.js",
+    "test:verify": "node --test tests/verify/*.test.js",
+    "lint:structure": "node scripts/check-structure.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "systeminformation": "5.33.13",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "concurrently": "latest",
+    "electron": "44.4.3",
+    "wait-on": "latest"
+  }
+}
