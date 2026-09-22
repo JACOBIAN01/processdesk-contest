@@ -18,27 +18,33 @@ export function useProcessStore(refreshMs = UI.PROCESS_REFRESH_MS) {
   // Fetches a fresh process snapshot and stores it. Called by the timer, the Refresh button
   // and after a kill. Expectation: the stored snapshot always reflects the newest request.
   const refresh = useCallback(async () => {
-    latestRequestId.current += 1;
+    const requestId = ++latestRequestId.current;
+    const isLatest = () => requestId === latestRequestId.current;
     try {
       const rows = await processApi.list();
+      if (!isLatest()) return;
       setSnapshot(rows);
       setError('');
     } catch (err) {
-      setError(err.message);
+      if (isLatest()) setError(err.message);
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
   }, []);
 
-  // Timer callback for automatic polling. Expectation: nothing is replaced while paused.
+  // Timer callback for automatic polling. While the app is running (not paused), each
+  // tick should fetch a fresh snapshot; while paused, ticks should be a no-op so the
+  // list stays exactly as it was.
   const tick = useCallback(() => {
-    if (!paused) refresh();
-  }, [refresh]);
+    if (paused) refresh();
+  }, [paused, refresh]);
 
-  // Polling loop: fetch now, then every `refreshMs` for as long as the app is open.
+  // Polling loop: should fetch immediately on mount, then again every `refreshMs`
+  // milliseconds for as long as the app stays open, so the list stays close to real
+  // time without the user doing anything.
   useEffect(() => {
     tick();
-    const timer = setInterval(tick, refreshMs);
+    const timer = setInterval(tick, 20000);
     return () => clearInterval(timer);
   }, [tick, refreshMs]);
 

@@ -4,7 +4,9 @@ function toPercent(part, total) {
   return total ? (part / total) * 100 : 0;
 }
 
-// Memory card data in bytes. `percent` is the share of total memory that is in use.
+// Memory card data in bytes. `percent` should represent the share of total memory that
+// is currently in use (used / total), matching the "used / total" figures shown
+// alongside it in the same card.
 function buildMemorySummary(mem) {
   return {
     total: mem.total,

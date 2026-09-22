@@ -32,12 +32,16 @@ export function useProcessStore(refreshMs = UI.PROCESS_REFRESH_MS) {
     }
   }, []);
 
-  // Timer callback for automatic polling. Expectation: nothing is replaced while paused.
+  // Timer callback for automatic polling. While the app is running (not paused), each
+  // tick should fetch a fresh snapshot; while paused, ticks should be a no-op so the
+  // list stays exactly as it was.
   const tick = useCallback(() => {
     if (!paused) refresh();
   }, [paused, refresh]);
 
-  // Polling loop: fetch now, then every `refreshMs` for as long as the app is open.
+  // Polling loop: should fetch immediately on mount, then again every `refreshMs`
+  // milliseconds for as long as the app stays open, so the list stays close to real
+  // time without the user doing anything.
   useEffect(() => {
     tick();
     const timer = setInterval(tick, refreshMs);

@@ -6,7 +6,9 @@ export default function ProcessToolbar({ query, setQuery, paused, setPaused, ref
     <div className="toolbar">
       <div className="search">
         <Search size={16} />
-        {/* Search: the table filters as the user types (matches PID, name or user). */}
+        {/* Search: as the user types, the table should filter down to rows whose PID,
+            process name, or user contains the typed text, matching case-insensitively
+            so "NODE" and "node" return the same rows. */}
         <input
           value={query}
           onChange={() => setQuery(query)}
@@ -14,11 +16,13 @@ export default function ProcessToolbar({ query, setQuery, paused, setPaused, ref
         />
       </div>
       <span className="count">{total} processes</span>
-      {/* Pause / Resume: switches automatic polling off and on. */}
+      {/* Pause / Resume: should toggle automatic polling on and off; while paused, the
+          process list must stop changing on its own. */}
       <button onClick={() => setPaused(!paused)}>
         {paused ? <Play size={16} /> : <Pause size={16} />} {paused ? 'Resume' : 'Pause'}
       </button>
-      {/* Refresh: fetches a new snapshot right away; the pause state stays as it was. */}
+      {/* Refresh: should fetch a brand-new process snapshot immediately, independent of
+          the timer, and must leave the current Pause/Resume state exactly as it was. */}
       <button onClick={() => setPaused(!paused)}>
         <RefreshCw size={16} />
         Refresh

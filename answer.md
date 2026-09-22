@@ -6,18 +6,18 @@ All paths and line numbers refer to the **student** package (`processdesk-studen
 
 | # | Tier | Marks | File | Line(s) |
 |---|---|---|---|---|
-| 1 | Very easy | 0.5 | `src/components/toolbar/ProcessToolbar.jsx` | 12 |
-| 2 | Very easy | 0.5 | `src/components/toolbar/ProcessToolbar.jsx` | 22 |
-| 3 | Easy | 1 | `src/utils/sortState.js` | 4 |
-| 4 | Easy | 1 | `src/components/processes/ProcessRow.jsx` | 18 (+ import) |
-| 5 | Medium | 1.25 | `src/features/processes/useProcessStore.js` | 34–36 |
-| 6 | Medium | 1.25 | `src/services/processApi.js` | 7 |
-| 7 | Medium | 1.25 | `src/services/processApi.js` | 9 |
-| 8 | Medium | 1.25 | `electron/services/systemService.js` | 13 |
-| 9 | Hard | 1 | `src/features/processes/useProcessStore.js` | 18–31 |
-| 10 | Hard | 1 | `src/features/processes/useSelectedProcess.js` | 1–12 |
+| 1 | Very easy | 1 | `src/components/toolbar/ProcessToolbar.jsx` | 12 |
+| 2 | Very easy | 1 | `src/components/toolbar/ProcessToolbar.jsx` | 22 |
+| 3 | Very easy | 1 | `src/services/processApi.js` | 9 |
+| 4 | Very easy | 1 | `src/features/processes/useProcessStore.js` | 37 |
+| 5 | Easy | 1 | `src/utils/sortState.js` | 4 |
+| 6 | Easy | 1 | `src/components/processes/ProcessRow.jsx` | 18 (+ import) |
+| 7 | Easy | 1 | `electron/services/systemService.js` | 13 |
+| 8 | Easy | 1 | `src/services/processApi.js` | 7 |
+| 9 | Easy | 1 | `src/features/processes/useProcessStore.js` | 43 |
+| 10 | Easy | 1 | `src/features/processes/useSelectedProcess.js` | 9 |
 
-Total: **10 marks**.
+Total: **10 marks** (4 Very easy + 6 Easy — no Medium or Hard tier).
 
 ---
 
@@ -71,7 +71,55 @@ onChange={(e) => setQuery(e.target.value)}
 
 ---
 
-## Bug 3 — Sorted column never reverses (Easy)
+## Bug 3 — Force kill uses the graceful path (Very easy)
+
+**File:** `src/services/processApi.js`, line 9
+
+**Symptom:** **Force kill** behaves exactly like **End process**: it sends `SIGTERM` (channel `processes:kill`), so processes that ignore `SIGTERM` survive.
+
+**Root cause:** the `forceKill` adapter calls `killProcess` instead of `forceKillProcess` — a wrong function name, nothing more.
+
+**What to change:**
+
+```js
+// Before (line 9)
+forceKill: (pid) => getBridge().killProcess(pid),
+
+// After
+forceKill: (pid) => getBridge().forceKillProcess(pid),
+```
+
+**Signal:** Force kill goes through `processes:force-kill` (visible in the main-process log if a handler log is added) and terminates processes that ignore `SIGTERM`.
+
+---
+
+## Bug 4 — Pause does the opposite of what it should (Very easy)
+
+**File:** `src/features/processes/useProcessStore.js`, line 37 (the `tick` callback)
+
+**Symptom:** The list never auto-loads while running normally; clicking **Pause** triggers an immediate fetch instead of stopping updates, and clicking **Resume** does nothing.
+
+**Root cause:** the condition in `tick` is backwards — it only refreshes *while paused* instead of *while not paused*.
+
+**What to change:** flip the condition.
+
+```js
+// Before (line 37)
+const tick = useCallback(() => {
+  if (paused) refresh();
+}, [paused, refresh]);
+
+// After
+const tick = useCallback(() => {
+  if (!paused) refresh();
+}, [paused, refresh]);
+```
+
+**Signal:** on load the list populates and keeps updating every 2 seconds; clicking Pause freezes it; clicking Resume starts it updating again right away.
+
+---
+
+## Bug 5 — Sorted column never reverses (Easy)
 
 **File:** `src/utils/sortState.js`, line 4 (`nextSort`)
 
@@ -93,7 +141,7 @@ return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
 
 ---
 
-## Bug 4 — Memory column is ~1024× too small (Easy)
+## Bug 6 — Memory column is ~1024× too small (Easy)
 
 **File:** `src/components/processes/ProcessRow.jsx`, line 18 (plus the imports at the top)
 
@@ -126,77 +174,7 @@ import { kbToBytes } from '../../utils/memory.js';
 
 ---
 
-## Bug 5 — Pause does not stop refreshing (Medium)
-
-**File:** `src/features/processes/useProcessStore.js`, lines 34–36 (the `tick` callback)
-
-**Symptom:** The button switches to "Resume", but the list keeps updating every 2 seconds.
-
-**Root cause:** stale closure. `tick` reads `paused`, but the `useCallback` dependency array is `[refresh]`, so `tick` is created once with `paused === false` and never sees later changes. The interval effect depends on `tick`, so it keeps the old function too.
-
-**What to change:** add `paused` to the dependency array. The effect then re-runs when pause changes: on pause the new `tick` is a no-op, and on resume it fetches immediately.
-
-```js
-// Before (lines 34–36)
-const tick = useCallback(() => {
-  if (!paused) refresh();
-}, [refresh]);
-
-// After
-const tick = useCallback(() => {
-  if (!paused) refresh();
-}, [paused, refresh]);
-```
-
-**Signal:** after Pause the process count and values freeze; after Resume they update again right away.
-
----
-
-## Bug 6 — End process reports "Invalid PID" (Medium)
-
-**File:** `src/services/processApi.js`, line 7
-
-**Symptom:** Clicking **End process** and confirming shows `Unable to end process: … Invalid PID`.
-
-**Root cause:** contract mismatch across layers. The renderer adapter sends an object `{ pid }`. The preload bridge forwards it unchanged, and `assertPid` in `electron/validators/processValidator.js` requires a bare positive integer, so it rejects the object. (`docs/IPC_FLOW.md` and `docs/DATA_CONTRACTS.md` state that the payload is the PID itself.) The correct fix is in the renderer adapter, not by loosening the validator.
-
-**What to change:**
-
-```js
-// Before (line 7)
-kill: (pid) => getBridge().killProcess({ pid }),
-
-// After
-kill: (pid) => getBridge().killProcess(pid),
-```
-
-**Signal:** End process terminates the selected PID with no "Invalid PID" error.
-
----
-
-## Bug 7 — Force kill uses the graceful path (Medium)
-
-**File:** `src/services/processApi.js`, line 9
-
-**Symptom:** **Force kill** behaves exactly like **End process**: it sends `SIGTERM` (channel `processes:kill`), so processes that ignore `SIGTERM` survive.
-
-**Root cause:** the `forceKill` adapter calls `killProcess` instead of `forceKillProcess`, so the `processes:force-kill` channel and `SIGKILL` are never used.
-
-**What to change:**
-
-```js
-// Before (line 9)
-forceKill: (pid) => getBridge().killProcess(pid),
-
-// After
-forceKill: (pid) => getBridge().forceKillProcess(pid),
-```
-
-**Signal:** Force kill goes through `processes:force-kill` (visible in the main-process log if a handler log is added) and terminates processes that ignore `SIGTERM`.
-
----
-
-## Bug 8 — Memory card shows available/total (Medium)
+## Bug 7 — Memory card shows available/total (Easy)
 
 **File:** `electron/services/systemService.js`, line 13 (`buildMemorySummary`)
 
@@ -218,108 +196,83 @@ percent: toPercent(mem.used, mem.total),
 
 ---
 
-## Bug 9 — Stale response overwrites newer data (Hard)
+## Bug 8 — End process reports "Invalid PID" (Easy)
 
-**File:** `src/features/processes/useProcessStore.js`, lines 18–31 (`refresh`)
+**File:** `src/services/processApi.js`, line 7
 
-**Symptom:** When refreshes overlap (rapid Refresh clicks, a slow IPC call, or the timer firing while a request is in flight), the table occasionally jumps back to older data.
+**Symptom:** Clicking **End process** and confirming shows `Unable to end process: … Invalid PID`.
 
-**Root cause:** the request counter `latestRequestId` is incremented but its value is never captured or compared. Every response, including one from an older request that resolves late, calls `setSnapshot`, so out-of-order completion lets stale data win.
+**Root cause:** the renderer adapter wraps the PID in an object `{ pid }` before sending it, but the preload bridge and main-process validator (`assertPid` in `electron/validators/processValidator.js`) expect the bare numeric PID itself. (`docs/IPC_FLOW.md` and `docs/DATA_CONTRACTS.md` state the payload is the PID itself.) The fix is in the renderer adapter, not by loosening the validator.
 
-**What to change:** capture the id for this request and only commit if it is still the latest. Apply the same guard to the error and loading updates.
+**What to change:**
 
 ```js
-// Before (lines 18–31)
-// Fetches a fresh process snapshot and stores it. Called by the timer, the Refresh button
-// and after a kill. Expectation: the stored snapshot always reflects the newest request.
-const refresh = useCallback(async () => {
-  latestRequestId.current += 1;
-  try {
-    const rows = await processApi.list();
-    setSnapshot(rows);
-    setError('');
-  } catch (err) {
-    setError(err.message);
-  } finally {
-    setLoading(false);
-  }
-}, []);
+// Before (line 7)
+kill: (pid) => getBridge().killProcess({ pid }),
 
 // After
-// Fetches a fresh process snapshot and stores it. Called by the timer, the Refresh button
-// and after a kill. Only the most recent request may commit its result, so a slow older
-// response can never overwrite a newer one.
-const refresh = useCallback(async () => {
-  const requestId = ++latestRequestId.current;
-  const isLatest = () => requestId === latestRequestId.current;
-  try {
-    const rows = await processApi.list();
-    if (!isLatest()) return;
-    setSnapshot(rows);
-    setError('');
-  } catch (err) {
-    if (isLatest()) setError(err.message);
-  } finally {
-    if (isLatest()) setLoading(false);
-  }
-}, []);
+kill: (pid) => getBridge().killProcess(pid),
 ```
 
-**Signal:** to reproduce, add a random delay (e.g. `await new Promise(r => setTimeout(r, Math.random() * 3000))`) at the top of `listProcesses` in `electron/services/processService.js`, then click Refresh rapidly. Before the fix the list can regress to older values; after it, only the newest response is ever applied. Remove the delay afterwards.
+**Signal:** End process terminates the selected PID with no "Invalid PID" error.
 
 ---
 
-## Bug 10 — Inspector shows stale values / dead process (Hard)
+## Bug 9 — Auto-refresh happens far slower than every 2 seconds (Easy)
 
-**File:** `src/features/processes/useSelectedProcess.js`, whole file (lines 1–12)
+**File:** `src/features/processes/useProcessStore.js`, line 43 (the polling `useEffect`)
 
-**Symptom:** After selecting a process, the inspector's CPU/memory never update while the process stays in the list. If the process exits, the inspector keeps showing it instead of closing.
+**Symptom:** The list and its values barely change — they only update roughly every 20 seconds instead of every 2, even though Pause/Resume and manual Refresh still work correctly.
 
-**Root cause:** the hook stores a **copy of the row object** taken at click time and never re-resolves it. Its `snapshot` argument is accepted but unused, so new snapshots cannot update the selection or clear it.
+**Root cause:** the timer ignores the `refreshMs` parameter sitting right there and uses a hardcoded `20000` instead.
 
-**What to change:** store only the PID, derive the selected process from the latest snapshot, and clear the PID when the process is no longer present. `App.jsx` already passes `processes.snapshot` (the unfiltered list, so searching does not clear the selection) and needs no change.
+**What to change:**
 
 ```js
-// Before (whole file)
-import { useCallback, useState } from 'react';
-
-// Tracks the process shown in the inspector. Expectation: the inspector always shows the
-// latest values of that process, and nothing is selected once the process is gone.
-export function useSelectedProcess(snapshot) {
-  const [selected, setSelected] = useState(null);
-
-  const select = useCallback((process) => setSelected(process), []);
-  const clear = useCallback(() => setSelected(null), []);
-
-  return { selected, select, clear };
-}
+// Before (line 43)
+useEffect(() => {
+  tick();
+  const timer = setInterval(tick, 20000);
+  return () => clearInterval(timer);
+}, [tick, refreshMs]);
 
 // After
-import { useCallback, useEffect, useMemo, useState } from 'react';
-
-// Tracks the process shown in the inspector. Stores only the PID and always resolves it
-// against the latest snapshot, so the inspector shows fresh values and clears when the
-// process exits.
-export function useSelectedProcess(snapshot) {
-  const [selectedPid, setSelectedPid] = useState(null);
-
-  const selected = useMemo(
-    () => (selectedPid === null ? null : (snapshot.find((p) => p.pid === selectedPid) ?? null)),
-    [snapshot, selectedPid],
-  );
-
-  useEffect(() => {
-    if (selectedPid !== null && selected === null) setSelectedPid(null);
-  }, [selectedPid, selected]);
-
-  const select = useCallback((process) => setSelectedPid(process.pid), []);
-  const clear = useCallback(() => setSelectedPid(null), []);
-
-  return { selected, select, clear };
-}
+useEffect(() => {
+  tick();
+  const timer = setInterval(tick, refreshMs);
+  return () => clearInterval(timer);
+}, [tick, refreshMs]);
 ```
 
-**Signal:** select a busy process and watch its CPU/memory change in the inspector on each refresh; quit that process from a terminal and the inspector closes on the next refresh. Typing in the search box so the row is filtered out does **not** close the inspector.
+**Signal:** watch the table for a few seconds after load — CPU/memory values visibly update roughly every 2 seconds, not every ~20.
+
+---
+
+## Bug 10 — Inspector never opens when a process is selected (Easy)
+
+**File:** `src/features/processes/useSelectedProcess.js`, line 9
+
+**Symptom:** Clicking a process row in the table never opens the inspector panel.
+
+**Root cause:** the hook already derives the selected process from the latest snapshot by matching on the stored PID, but the lookup compares the wrong field — `p.name` (a string) against `selectedPid` (a number) — so it never finds a match.
+
+**What to change:**
+
+```js
+// Before (line 9)
+const selected = useMemo(
+  () => (selectedPid === null ? null : (snapshot.find((p) => p.name === selectedPid) ?? null)),
+  [snapshot, selectedPid],
+);
+
+// After
+const selected = useMemo(
+  () => (selectedPid === null ? null : (snapshot.find((p) => p.pid === selectedPid) ?? null)),
+  [snapshot, selectedPid],
+);
+```
+
+**Signal:** clicking any process row opens the inspector immediately, and its CPU/memory keep updating on each refresh (the hook already re-derives from the latest snapshot, so this also confirms the selection tracks live data and clears when the process exits — see `docs/DEBUGGING_PLAYBOOK.md` for the general re-test-nearby-behavior habit).
 
 ---
 
@@ -333,11 +286,11 @@ npm run lint:structure   # passes before AND after fixes
 npm run dev              # walk through the 10 behaviors in QUESTION_PAPER.md
 ```
 
-In `processdesk-instructor/`, `npm run test:verify` automatically checks bugs 3, 6, 7 and 8 (it fails on the unfixed student code for exactly these four). Bugs 1, 2, 4, 5, 9 and 10 are UI/state behavior and must be checked in the running app; see `INSTRUCTOR_GUIDE.md` for the manual checks.
+In `processdesk-instructor/`, `npm run test:verify` automatically checks bugs 3, 5, 7 and 8 (it fails on the unfixed student code for exactly these four). Bugs 1, 2, 4, 9 and 10 are UI/state behavior and must be checked in the running app; see `INSTRUCTOR_GUIDE.md` for the manual checks.
 
 ## Bonus: things contestants should *not* do
 
-- Loosen `assertPid` to accept objects or strings (fixes bug 6 in the wrong layer).
+- Loosen `assertPid` to accept objects or strings (fixes bug 8 in the wrong layer).
 - Set `nodeIntegration: true` or `contextIsolation: false`, or expose `ipcRenderer` from the preload script.
-- Fix bug 5 by removing the Pause feature, or bug 10 by removing the inspector.
+- Fix bug 4 by removing the Pause feature, or bug 10 by removing the inspector.
 - Import `electron`, `fs` or `child_process` in renderer code (`npm run lint:structure` catches this).

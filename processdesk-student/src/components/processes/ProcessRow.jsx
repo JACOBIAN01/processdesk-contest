@@ -14,7 +14,9 @@ export default function ProcessRow({ process, onSelect, selected }) {
       </td>
       <td>{process.user}</td>
       <td className="num">{formatPercent(process.cpu)}</td>
-      {/* Memory column: resident memory of the process, formatted for display. */}
+      {/* Memory column: should show the process's resident memory in human-readable units
+          (KB/MB/GB) that match what the OS and the inspector panel report for the same
+          process. */}
       <td className="num">{formatBytes(process.memoryRss)}</td>
       <td>
         <span className={`state ${String(process.state).toLowerCase()}`}>{process.state}</span>

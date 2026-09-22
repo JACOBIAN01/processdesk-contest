@@ -10,6 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test tests/unit/*.test.js tests/integration/*.test.js",
+    "test:contest": "mocha tests/contest/behavior.spec.mjs --timeout 20000",
     "lint:structure": "node scripts/check-structure.js"
   },
   "dependencies": {
@@ -21,8 +22,11 @@
     "vite": "latest"
   },
   "devDependencies": {
+    "chai": "^6.2.2",
     "concurrently": "latest",
     "electron": "44.4.3",
+    "jsdom": "^30.1.1",
+    "mocha": "^12.0.2",
     "wait-on": "latest"
   }
 }

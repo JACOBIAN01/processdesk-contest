@@ -16,7 +16,7 @@ Status: **implemented** — the student package ships with all 10 bugs seeded an
 
 **Target users:** contest participants comfortable with VS Code who must read an unfamiliar, larger-than-a-toy codebase, find regressions, and fix them under time pressure.
 
-**Core value:** the repo is deliberately structured like a real product, not a single file, so finding a bug means *tracing* it across layers. Each seeded bug is a realistic regression (a mis-wired handler, a stale closure, a unit mismatch, a contract mismatch) rather than invented syntax.
+**Core value:** the repo is deliberately structured like a real product, not a single file, so finding a bug means reading the right small piece of it, not guessing. Each seeded bug is a realistic, beginner-reachable regression (a mis-wired handler, an inverted condition, a unit mismatch, a wrong payload shape, a wrong field name) rather than invented syntax.
 
 **Why a layered codebase:** bugs must be reachable only by following data across boundaries.
 
@@ -56,14 +56,12 @@ Plus shared utils, constants, config, tests (`tests/unit`, `tests/integration`),
 
 ---
 
-## 3. Bug Distribution — 10 Bugs, 4 Tiers
+## 3. Bug Distribution — 10 Bugs, 2 Tiers
 
 | Tier | Bugs | Marks each | Total marks |
 |---|---|---|---|
-| Very easy | 2 | 0.5 | 1 |
-| Easy | 2 | 1 | 2 |
-| Medium | 4 | 1.25 | 5 |
-| Hard | 2 | 1 | 2 |
+| Very easy | 4 | 1 | 4 |
+| Easy | 6 | 1 | 6 |
 | **Total** | **10** | | **10** |
 
 Bugs are spread across renderer UI, feature/state logic, API contracts, Electron service logic, and async behavior, so no single file or layer holds the whole answer.
@@ -74,23 +72,21 @@ Every bug has a defined, observable **signal** that fires the moment it is fixed
 
 | Tier | Pre-fix state (broken) | Signal when fixed |
 |---|---|---|
-| **Very easy** | Control is dead or does the wrong action | The control responds correctly at once (typing filters, Refresh fetches) |
-| **Easy** | Feature runs but visibly shows the wrong thing | Output becomes visibly correct (sort reverses, memory units right) |
-| **Medium** | Feature looks right in the UI but fails at a layer boundary or on a hidden condition | The exact repro no longer fails (Pause truly stops updates, End/Force kill hit the right path, memory % is used/total) |
-| **Hard** | Failure only appears under timing or state drift | The race or stale-state repro can no longer be produced |
+| **Very easy** | Control is dead or does the wrong (often opposite) action | The control responds correctly at once (typing filters, Refresh fetches, Pause actually pauses, Force kill actually force-kills) |
+| **Easy** | Feature runs but visibly/measurably shows the wrong thing | Output becomes visibly correct (sort reverses, memory units and percentages are right, End process succeeds, refresh cadence matches the spec, the inspector opens) |
 
 ### Which features carry bugs
 
 | Feature | Bugs seeded | Tier(s) |
 |---|---|---|
-| 1. Process list & auto-refresh | 2 | Medium, Hard |
+| 1. Process list & auto-refresh | 2 | Very easy, Easy |
 | 2. Search | 1 | Very easy |
 | 3. Column sorting | 1 | Easy |
 | 4. Pause / Resume / Refresh | 1 | Very easy |
 | 5. Process table & memory display | 1 | Easy |
-| 6. Process inspector | 1 | Hard |
-| 7. End process / Force kill | 2 | Medium, Medium |
-| 8. System summary | 1 | Medium |
+| 6. Process inspector | 1 | Easy |
+| 7. End process / Force kill | 2 | Very easy, Easy |
+| 8. System summary | 1 | Easy |
 | 9. Window chrome & error handling | 0 | — bug-free reference implementation |
 | **Total** | **10** | |
 
@@ -102,27 +98,21 @@ Feature 9 is left bug-free on purpose. It is still worth reading: the safe-resul
 
 Function and variable names follow the real code (`processApi`, `useProcessStore`, `nextSort`, `memoryRss`) so the seeded bugs read like real regressions.
 
-### Very easy (2)
+### Very easy (4)
 
 1. **Search** — the input's `onChange` calls `setQuery(query)`, writing the existing value back, so typing never changes the filter. File: `src/components/toolbar/ProcessToolbar.jsx`. **Signal:** typing in the box immediately filters by PID, name, or user, case-insensitively.
 2. **Refresh** — the Refresh button's `onClick` is wired to `setPaused(!paused)` instead of `refresh`. File: `src/components/toolbar/ProcessToolbar.jsx`. **Signal:** clicking Refresh fetches a fresh snapshot and leaves the Pause state alone.
+3. **Force kill** — `forceKill` calls `killProcess` (graceful path) instead of `forceKillProcess`, so both buttons use `processes:kill`. File: `src/services/processApi.js`. **Signal:** Force kill goes through `processes:force-kill`.
+4. **Pause** — the polling `tick` callback's condition is inverted (`if (paused) refresh()`), so the list never auto-loads while running and Pause triggers a fetch instead of stopping one. File: `src/features/processes/useProcessStore.js`. **Signal:** the list loads and keeps updating every 2 seconds; Pause freezes it and Resume restarts it immediately.
 
-### Easy (2)
+### Easy (6)
 
-3. **Sorting** — the `nextSort` helper returns `'asc'` in both branches, so clicking the sorted column never reverses. File: `src/utils/sortState.js`. **Signal:** repeated clicks on the sorted column alternate ascending / descending.
-4. **Memory units** — `memoryRss` arrives in KB but `formatBytes` expects bytes, so every value is about 1024× too small. File: `src/components/processes/ProcessRow.jsx`. **Signal:** memory values show realistic MB/GB figures that match the OS.
-
-### Medium (4)
-
-5. **Pause** — the polling `tick` callback is memoised without `paused` in its dependencies, so it closes over the initial `paused=false`. The button toggles but polling continues. File: `src/features/processes/useProcessStore.js`. **Signal:** after Pause, the list stops being replaced; after Resume, it restarts.
-6. **End process** — the renderer adapter sends `{ pid }` while preload and main expect a bare numeric PID, so validation rejects it as an invalid PID. File: `src/services/processApi.js`. **Signal:** End process terminates the selected PID with no "invalid PID" error.
-7. **Force kill** — `forceKill` calls `killProcess` (graceful path) instead of `forceKillProcess`, so both buttons use `processes:kill`. File: `src/services/processApi.js`. **Signal:** Force kill goes through `processes:force-kill`.
-8. **Memory card** — the system service computes `percent` from `available / total` instead of `used / total`. File: `electron/services/systemService.js`. **Signal:** the memory card shows used / total.
-
-### Hard (2)
-
-9. **Stale responses** — a request counter is incremented but never compared, so an older, slower response can overwrite a newer snapshot. File: `src/features/processes/useProcessStore.js`. **Signal:** under overlapping refreshes (rapid Refresh clicks, slow IPC), the list can only ever move forward to the latest response.
-10. **Inspector staleness** — `useSelectedProcess` stores a copy of the row object and never reconciles it against the refreshed list, so the inspector shows old values or a process that no longer exists. File: `src/features/processes/useSelectedProcess.js`. **Signal:** the inspector shows the latest CPU/memory while the process lives, and the selection clears when it disappears.
+5. **Sorting** — the `nextSort` helper returns `'asc'` in both branches, so clicking the sorted column never reverses. File: `src/utils/sortState.js`. **Signal:** repeated clicks on the sorted column alternate ascending / descending.
+6. **Memory units** — `memoryRss` arrives in KB but `formatBytes` expects bytes, so every value is about 1024× too small. File: `src/components/processes/ProcessRow.jsx`. **Signal:** memory values show realistic MB/GB figures that match the OS.
+7. **Memory card** — the system service computes `percent` from `available / total` instead of `used / total`. File: `electron/services/systemService.js`. **Signal:** the memory card shows used / total.
+8. **End process** — the renderer adapter sends `{ pid }` while preload and main expect a bare numeric PID, so validation rejects it as an invalid PID. File: `src/services/processApi.js`. **Signal:** End process terminates the selected PID with no "invalid PID" error.
+9. **Auto-refresh cadence** — the polling timer hardcodes `20000` instead of using the `refreshMs` parameter, so the list refreshes roughly every 20 seconds instead of every 2. File: `src/features/processes/useProcessStore.js`. **Signal:** CPU/memory values visibly update every ~2 seconds, not ~20.
+10. **Inspector selection** — the hook that derives the selected process from the latest snapshot compares the wrong field (`p.name` instead of `p.pid`), so the lookup never matches and the inspector never opens. File: `src/features/processes/useSelectedProcess.js`. **Signal:** clicking any process row opens the inspector immediately with live values.
 
 ---
 
@@ -148,7 +138,7 @@ Function and variable names follow the real code (`processApi`, `useProcessStore
 **Per-bug report format:**
 - Bug ID (1–10)
 - Feature / File
-- Tier (very easy / easy / medium / hard)
+- Tier (very easy / easy)
 - Symptom observed
 - Root cause (the underlying mechanism, not just what changed)
 - Fix applied (diff summary)
@@ -156,7 +146,7 @@ Function and variable names follow the real code (`processApi`, `useProcessStore
 - Whether Claude was used, and what prompt or approach found the bug (contest-specific)
 - Time spent
 
-**Root cause requirement:** explain the mechanism. Examples: "stale closure, `paused` missing from the `useCallback` dependencies", "payload shape mismatch between renderer adapter and preload contract", "unit mismatch KB vs bytes".
+**Root cause requirement:** explain the mechanism. Examples: "inverted condition — `if (paused)` instead of `if (!paused)`", "payload shape mismatch between renderer adapter and preload contract", "unit mismatch KB vs bytes".
 
 **Fix verification method:** a before/after repro (screenshot, log, or short recording) matching the Signal for that bug. The evaluator may also run functional checks against the ten required behaviors in `QUESTION_PAPER.md`.
 
@@ -173,10 +163,10 @@ Suggested total: **60 minutes** (per `QUESTION_PAPER.md`).
 - 10 min — verification and bug report
 
 **Expected completion by skill level:**
-- Struggling: both very easy bugs, maybe 1 easy
-- Average: both very easy + both easy + 2–3 medium
-- Strong: all very easy, easy, and medium bugs
-- Excellent: all 10, including both Hard bugs
+- Struggling: most or all of the 4 very easy bugs
+- Average: all 4 very easy + 2–3 easy bugs
+- Strong: all 4 very easy + most of the 6 easy bugs
+- Excellent: all 10
 
 ---
 
